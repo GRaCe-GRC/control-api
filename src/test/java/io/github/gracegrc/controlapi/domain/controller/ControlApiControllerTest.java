@@ -14,6 +14,7 @@ import io.github.gracegrc.controlapi.domain.model.exception.ControlGroupAlreadyE
 import io.github.gracegrc.controlapi.domain.model.exception.ControlGroupInUseException;
 import io.github.gracegrc.controlapi.domain.model.exception.ControlGroupNotFoundException;
 import io.github.gracegrc.controlapi.domain.service.ControlGroupService;
+import io.github.gracegrc.controlapi.domain.service.ControlService;
 import java.time.Instant;
 import java.util.List;
 import java.util.UUID;
@@ -40,6 +41,9 @@ class ControlApiControllerTest {
 
 	@MockitoBean
 	private ControlGroupService controlGroupService;
+
+	@MockitoBean
+	private ControlService controlService;
 
 	@Test
 	void postGroupCreatesTheGroupAndReturnsAnEmptyBody() {
