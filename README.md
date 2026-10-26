@@ -2,7 +2,7 @@
 
 Inner API for controls (Controls database).
 
-> **Status:** CRUD for control groups in the `controls` schema of the `controls` database.
+> **Status:** CRUD for control groups and controls in the `controls` schema of the `controls` database.
 
 ## Stack
 - Java (latest LTS at setup), Spring Boot (latest stable at setup)
@@ -38,12 +38,33 @@ mapped with Spring Data JDBC.
 
 Errors use RFC 9457 problem details: `400` for invalid input (with an `errors` field per
 property), `404` for an unknown id or `parentGroupId`, `409` for a duplicate `groupRef` or for
-deleting a group that still has child groups.
+deleting a group that still has child groups or controls.
 
 ```bash
 curl -s -H 'Content-Type: application/json' \
   -d '{"groupRef":"AC","title":"Access Control","createdBy":"me"}' \
   http://localhost:8080/api/v1/control-groups
+```
+
+## Controls API
+
+| Method and path | Body | Response |
+|---|---|---|
+| `POST /api/v1/controls` | `groupId` (optional), `parentControlId` (optional), `controlRef`, `title`, `statement` (optional), `createdBy` | `201`, empty body, `Location` header with the new control's URL |
+| `GET /api/v1/controls` | | `200` with the list of controls; `?groupId=<id>` returns a group's controls, `?parentId=<id>` a control's enhancements (both can be combined) |
+| `GET /api/v1/controls/{id}` | | `200` with the control |
+| `PUT /api/v1/controls/{id}` | `groupId` (optional), `parentControlId` (optional), `controlRef`, `title`, `statement` (optional) | `200` with the control (`createdAt` and `createdBy` never change) |
+| `DELETE /api/v1/controls/{id}` | | `204` |
+
+An enhancement is a control whose `parentControlId` is another control (for example `AC-2(1)`
+under `AC-2`). `PUT` replaces every field it accepts, so an omitted optional field is cleared.
+Errors: `400` for invalid input, `404` for an unknown id, `groupId` or `parentControlId`, `409`
+for a duplicate `controlRef` or for deleting a control that still has enhancements.
+
+```bash
+curl -s -H 'Content-Type: application/json' \
+  -d '{"controlRef":"AC-2","title":"Account Management","createdBy":"me"}' \
+  http://localhost:8080/api/v1/controls
 ```
 
 ## Database
@@ -63,6 +84,7 @@ schema; `control_mappings` in the same database belongs to control-mapping-api
 | Table | Migration |
 |---|---|
 | `control_groups` | `V1__create_control_groups.sql` |
+| `controls` | `V2__create_controls.sql` |
 
 ## Test and build
 ```bash

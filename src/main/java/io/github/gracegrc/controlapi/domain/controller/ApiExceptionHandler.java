@@ -1,8 +1,11 @@
 package io.github.gracegrc.controlapi.domain.controller;
 
+import io.github.gracegrc.controlapi.domain.model.exception.ControlAlreadyExistsException;
 import io.github.gracegrc.controlapi.domain.model.exception.ControlGroupAlreadyExistsException;
 import io.github.gracegrc.controlapi.domain.model.exception.ControlGroupInUseException;
 import io.github.gracegrc.controlapi.domain.model.exception.ControlGroupNotFoundException;
+import io.github.gracegrc.controlapi.domain.model.exception.ControlInUseException;
+import io.github.gracegrc.controlapi.domain.model.exception.ControlNotFoundException;
 import java.util.Map;
 import java.util.stream.Collectors;
 import org.springframework.http.HttpHeaders;
@@ -20,18 +23,18 @@ import org.springframework.web.servlet.mvc.method.annotation.ResponseEntityExcep
 @RestControllerAdvice
 public class ApiExceptionHandler extends ResponseEntityExceptionHandler {
 
-	@ExceptionHandler(ControlGroupNotFoundException.class)
-	public ProblemDetail handleNotFound(ControlGroupNotFoundException ex) {
+	@ExceptionHandler({ ControlGroupNotFoundException.class, ControlNotFoundException.class })
+	public ProblemDetail handleNotFound(RuntimeException ex) {
 		return ProblemDetail.forStatusAndDetail(HttpStatus.NOT_FOUND, ex.getMessage());
 	}
 
-	@ExceptionHandler(ControlGroupAlreadyExistsException.class)
-	public ProblemDetail handleAlreadyExists(ControlGroupAlreadyExistsException ex) {
+	@ExceptionHandler({ ControlGroupAlreadyExistsException.class, ControlAlreadyExistsException.class })
+	public ProblemDetail handleAlreadyExists(RuntimeException ex) {
 		return ProblemDetail.forStatusAndDetail(HttpStatus.CONFLICT, ex.getMessage());
 	}
 
-	@ExceptionHandler(ControlGroupInUseException.class)
-	public ProblemDetail handleInUse(ControlGroupInUseException ex) {
+	@ExceptionHandler({ ControlGroupInUseException.class, ControlInUseException.class })
+	public ProblemDetail handleInUse(RuntimeException ex) {
 		return ProblemDetail.forStatusAndDetail(HttpStatus.CONFLICT, ex.getMessage());
 	}
 
