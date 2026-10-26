@@ -2,21 +2,67 @@
 
 Inner API for controls (Controls database).
 
-> **Status:** starter app. It starts a Spring Boot application with Actuator endpoints and nothing else. Features arrive in later stories.
+> **Status:** CRUD for control groups in the `controls` schema of the `controls` database.
 
 ## Stack
 - Java (latest LTS at setup), Spring Boot (latest stable at setup)
 - Maven, via the Maven wrapper (`./mvnw`)
+- PostgreSQL with Spring Data JDBC, schema managed by Flyway (`src/main/resources/db/migration`)
 
 ## Getting started
+Start the database from [GRaCe-GRC-sandbox](https://github.com/GRaCe-GRC/GRaCe-GRC-sandbox), then the app:
+
 ```bash
+(cd ../GRaCe-GRC-sandbox/compose && docker compose up -d --wait)
 ./mvnw spring-boot:run
 ```
+
+On startup Flyway applies any new migrations to the `controls` schema. Entities are Java records
+mapped with Spring Data JDBC.
 
 | Endpoint | Description |
 |---|---|
 | `GET http://localhost:8080/actuator/health` | Health status (`UP`) |
 | `GET http://localhost:8080/actuator/info` | Application info |
+| `GET http://localhost:8080/swagger-ui.html` | API documentation (OpenAPI at `/v3/api-docs`) |
+
+## Control groups API
+
+| Method and path | Body | Response |
+|---|---|---|
+| `POST /api/v1/control-groups` | `parentGroupId` (optional), `groupRef`, `title`, `createdBy` | `201`, empty body, `Location` header with the new group's URL |
+| `GET /api/v1/control-groups` | | `200` with the list of groups; `?parentId=<id>` returns only that group's children |
+| `GET /api/v1/control-groups/{id}` | | `200` with the group |
+| `PUT /api/v1/control-groups/{id}` | `parentGroupId` (optional), `groupRef`, `title` | `200` with the group (`createdAt` and `createdBy` never change) |
+| `DELETE /api/v1/control-groups/{id}` | | `204` |
+
+Errors use RFC 9457 problem details: `400` for invalid input (with an `errors` field per
+property), `404` for an unknown id or `parentGroupId`, `409` for a duplicate `groupRef` or for
+deleting a group that still has child groups.
+
+```bash
+curl -s -H 'Content-Type: application/json' \
+  -d '{"groupRef":"AC","title":"Access Control","createdBy":"me"}' \
+  http://localhost:8080/api/v1/control-groups
+```
+
+## Database
+
+| Environment variable | Default |
+|---|---|
+| `CONTROL_DB_HOST` | `localhost` |
+| `CONTROL_DB_PORT` | `5432` |
+| `CONTROL_DB_NAME` | `controls` |
+| `CONTROL_DB_USERNAME` | `control_api` |
+| `CONTROL_DB_PASSWORD` | `control_api` |
+
+The defaults match the sandbox and are for local use only. The app uses only the `controls`
+schema; `control_mappings` in the same database belongs to control-mapping-api
+([ADR 0006](https://github.com/GRaCe-GRC/GRaCe-GRC-docs/blob/main/adr/0006-controls-database-schemas.md)).
+
+| Table | Migration |
+|---|---|
+| `control_groups` | `V1__create_control_groups.sql` |
 
 ## Test and build
 ```bash
