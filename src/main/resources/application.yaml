@@ -1,6 +1,16 @@
 spring:
   application:
     name: control-api
+  datasource:
+    url: jdbc:postgresql://${CONTROL_DB_HOST:localhost}:${CONTROL_DB_PORT:5432}/${CONTROL_DB_NAME:controls}?currentSchema=controls
+    username: ${CONTROL_DB_USERNAME:control_api}
+    password: ${CONTROL_DB_PASSWORD:control_api}
+  data:
+    jdbc:
+      dialect: postgresql
+  flyway:
+    schemas: controls
+    default-schema: controls
 
 management:
   endpoints:
