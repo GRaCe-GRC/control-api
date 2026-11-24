@@ -16,6 +16,7 @@ import io.github.gracegrc.controlapi.domain.model.exception.ControlAlreadyExists
 import io.github.gracegrc.controlapi.domain.model.exception.ControlGroupNotFoundException;
 import io.github.gracegrc.controlapi.domain.model.exception.ControlInUseException;
 import io.github.gracegrc.controlapi.domain.model.exception.ControlNotFoundException;
+import io.github.gracegrc.controlapi.domain.model.exception.ControlParentLoopException;
 import io.github.gracegrc.controlapi.domain.repository.ControlGroupRepository;
 import io.github.gracegrc.controlapi.domain.repository.ControlRepository;
 import java.time.Instant;
@@ -40,6 +41,14 @@ class ControlServiceImplTest {
 	private static final UUID GROUP_ID = UUID.fromString("5b1e8c2a-3d4f-4a6b-8c9d-0e1f2a3b4c5d");
 
 	private static final UUID PARENT_ID = UUID.fromString("2d4f6a8c-1b3d-4e5f-9a7b-8c9d0e1f2a3b");
+
+	private static final UUID ENHANCEMENT_ID = UUID.fromString("3e4f5a6b-7c8d-4e9f-8a0b-1c2d3e4f5a6b");
+
+	private static final UUID DEEP_ENHANCEMENT_ID = UUID.fromString("8f9e0d1c-2b3a-4c5d-9e6f-7a8b9c0d1e2f");
+
+	private static final UUID DEEPEST_ENHANCEMENT_ID = UUID.fromString("9a0b1c2d-3e4f-4a5b-8c6d-7e8f9a0b1c2d");
+
+	private static final UUID OTHER_ID = UUID.fromString("b1c2d3e4-f5a6-4b7c-9d8e-0f1a2b3c4d5e");
 
 	private static final Instant CREATED_AT = Instant.parse("2026-10-01T10:15:30Z");
 
@@ -196,6 +205,102 @@ class ControlServiceImplTest {
 	}
 
 	@Test
+	void updateAsAnEnhancementOfAControlInAnotherBranchSaves() {
+		given(controlRepository.findById(ID)).willReturn(Optional.of(EXISTING));
+		given(controlRepository.findAllByParentControlIdIsNotNull())
+			.willReturn(List.of(control(ENHANCEMENT_ID, ID, "AC-2(1)"), control(OTHER_ID, PARENT_ID, "AC-3(1)")));
+		given(controlRepository.existsById(OTHER_ID)).willReturn(true);
+		given(controlRepository.save(any())).willAnswer(invocation -> invocation.getArgument(0));
+
+		ControlResponseDto response = controlService.update(ID,
+				new ControlUpdateRequestDto(null, OTHER_ID, "AC-2", "Account Management", null));
+
+		assertThat(response.parentControlId()).isEqualTo(OTHER_ID);
+	}
+
+	@Test
+	void updateToATopLevelControlSavesWithoutLoadingTheTreeOrCheckingAParent() {
+		given(controlRepository.findById(ID)).willReturn(Optional.of(control(ID, PARENT_ID, "AC-2")));
+		given(controlRepository.save(any())).willAnswer(invocation -> invocation.getArgument(0));
+
+		ControlResponseDto response = controlService.update(ID,
+				new ControlUpdateRequestDto(null, null, "AC-2", "Account Management", null));
+
+		assertThat(response.parentControlId()).isNull();
+		then(controlRepository).should(never()).findAllByParentControlIdIsNotNull();
+		then(controlRepository).should(never()).existsById(any());
+	}
+
+	@Test
+	void updateAsAnEnhancementOfItselfThrowsParentLoopAndSavesNothing() {
+		given(controlRepository.findById(ID)).willReturn(Optional.of(EXISTING));
+		given(controlRepository.findAllByParentControlIdIsNotNull())
+			.willReturn(List.of(control(ENHANCEMENT_ID, ID, "AC-2(1)")));
+
+		assertThatThrownBy(() -> controlService.update(ID,
+				new ControlUpdateRequestDto(null, ID, "AC-2", "Account Management", null)))
+			.isInstanceOf(ControlParentLoopException.class)
+			.hasMessage("Control " + ID + " cannot be an enhancement of itself or of one of its enhancements");
+		then(controlRepository).should(never()).save(any());
+	}
+
+	@Test
+	void updateAsAnEnhancementOfItsOwnEnhancementThrowsParentLoopAndSavesNothing() {
+		given(controlRepository.findById(ID)).willReturn(Optional.of(EXISTING));
+		given(controlRepository.findAllByParentControlIdIsNotNull())
+			.willReturn(List.of(control(ENHANCEMENT_ID, ID, "AC-2(1)")));
+
+		assertThatThrownBy(() -> controlService.update(ID,
+				new ControlUpdateRequestDto(null, ENHANCEMENT_ID, "AC-2", "Account Management", null)))
+			.isInstanceOf(ControlParentLoopException.class);
+		then(controlRepository).should(never()).save(any());
+	}
+
+	@Test
+	void updateAsAnEnhancementOfADeepEnhancementThrowsParentLoopAndSavesNothing() {
+		given(controlRepository.findById(ID)).willReturn(Optional.of(EXISTING));
+		given(controlRepository.findAllByParentControlIdIsNotNull()).willReturn(List.of(
+				control(DEEPEST_ENHANCEMENT_ID, DEEP_ENHANCEMENT_ID, "AC-2(1)(a)(i)"),
+				control(OTHER_ID, PARENT_ID, "AC-3(1)"), control(DEEP_ENHANCEMENT_ID, ENHANCEMENT_ID, "AC-2(1)(a)"),
+				control(ENHANCEMENT_ID, ID, "AC-2(1)")));
+
+		assertThatThrownBy(() -> controlService.update(ID,
+				new ControlUpdateRequestDto(null, DEEPEST_ENHANCEMENT_ID, "AC-2", "Account Management", null)))
+			.isInstanceOf(ControlParentLoopException.class);
+		then(controlRepository).should(never()).save(any());
+	}
+
+	@Test
+	void updateWithACorruptCycleElsewhereStopsAndSaves() {
+		given(controlRepository.findById(ID)).willReturn(Optional.of(EXISTING));
+		given(controlRepository.findAllByParentControlIdIsNotNull()).willReturn(List.of(
+				control(PARENT_ID, OTHER_ID, "AC-3"), control(OTHER_ID, PARENT_ID, "AC-3(1)"),
+				control(ENHANCEMENT_ID, ID, "AC-2(1)")));
+		given(controlRepository.existsById(PARENT_ID)).willReturn(true);
+		given(controlRepository.save(any())).willAnswer(invocation -> invocation.getArgument(0));
+
+		ControlResponseDto response = controlService.update(ID,
+				new ControlUpdateRequestDto(null, PARENT_ID, "AC-2", "Account Management", null));
+
+		assertThat(response.parentControlId()).isEqualTo(PARENT_ID);
+	}
+
+	@Test
+	void updateWithACorruptCycleInsideTheSubtreeStopsAndSavesAParentOutsideIt() {
+		given(controlRepository.findById(ID)).willReturn(Optional.of(control(ID, DEEP_ENHANCEMENT_ID, "AC-2")));
+		given(controlRepository.findAllByParentControlIdIsNotNull()).willReturn(List.of(
+				control(ID, DEEP_ENHANCEMENT_ID, "AC-2"), control(ENHANCEMENT_ID, ID, "AC-2(1)"),
+				control(DEEP_ENHANCEMENT_ID, ENHANCEMENT_ID, "AC-2(1)(a)")));
+		given(controlRepository.existsById(PARENT_ID)).willReturn(true);
+		given(controlRepository.save(any())).willAnswer(invocation -> invocation.getArgument(0));
+
+		ControlResponseDto response = controlService.update(ID,
+				new ControlUpdateRequestDto(null, PARENT_ID, "AC-2", "Account Management", null));
+
+		assertThat(response.parentControlId()).isEqualTo(PARENT_ID);
+	}
+
+	@Test
 	void updateWithAnUnknownIdThrowsNotFoundAndSavesNothing() {
 		given(controlRepository.findById(ID)).willReturn(Optional.empty());
 
@@ -242,6 +347,10 @@ class ControlServiceImplTest {
 
 		assertThatThrownBy(() -> controlService.delete(ID)).isInstanceOf(ControlInUseException.class)
 			.hasMessage("Control " + ID + " still has enhancements");
+	}
+
+	private static ControlEntity control(UUID id, UUID parentControlId, String controlRef) {
+		return new ControlEntity(id, null, parentControlId, controlRef, controlRef, null, CREATED_AT, "admin-console");
 	}
 
 }

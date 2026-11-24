@@ -13,6 +13,7 @@ import io.github.gracegrc.controlapi.domain.model.dto.ControlGroupUpdateRequestD
 import io.github.gracegrc.controlapi.domain.model.exception.ControlGroupAlreadyExistsException;
 import io.github.gracegrc.controlapi.domain.model.exception.ControlGroupInUseException;
 import io.github.gracegrc.controlapi.domain.model.exception.ControlGroupNotFoundException;
+import io.github.gracegrc.controlapi.domain.model.exception.ControlGroupParentLoopException;
 import io.github.gracegrc.controlapi.domain.service.ControlGroupService;
 import io.github.gracegrc.controlapi.domain.service.ControlService;
 import java.time.Instant;
@@ -186,6 +187,20 @@ class ControlApiControllerTest {
 			.contentType(MediaType.APPLICATION_JSON)
 			.content("{\"groupRef\":\"AC\",\"title\":\"Access Control\"}"))
 			.hasStatus(HttpStatus.NOT_FOUND);
+	}
+
+	@Test
+	void putGroupUnderItselfOrAChildReturnsBadRequest() {
+		given(controlGroupService.update(eq(ID), any())).willThrow(new ControlGroupParentLoopException(ID));
+
+		assertThat(mvc.put()
+			.uri("/api/v1/control-groups/{id}", ID)
+			.contentType(MediaType.APPLICATION_JSON)
+			.content("{\"parentGroupId\":\"" + ID + "\",\"groupRef\":\"AC\",\"title\":\"Access Control\"}"))
+			.hasStatus(HttpStatus.BAD_REQUEST)
+			.bodyJson()
+			.isLenientlyEqualTo("{\"status\":400,\"detail\":\"Control group " + ID
+					+ " cannot be moved under itself or one of its child groups\"}");
 	}
 
 	@Test

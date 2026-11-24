@@ -4,8 +4,10 @@ import io.github.gracegrc.controlapi.domain.model.exception.ControlAlreadyExists
 import io.github.gracegrc.controlapi.domain.model.exception.ControlGroupAlreadyExistsException;
 import io.github.gracegrc.controlapi.domain.model.exception.ControlGroupInUseException;
 import io.github.gracegrc.controlapi.domain.model.exception.ControlGroupNotFoundException;
+import io.github.gracegrc.controlapi.domain.model.exception.ControlGroupParentLoopException;
 import io.github.gracegrc.controlapi.domain.model.exception.ControlInUseException;
 import io.github.gracegrc.controlapi.domain.model.exception.ControlNotFoundException;
+import io.github.gracegrc.controlapi.domain.model.exception.ControlParentLoopException;
 import java.util.Map;
 import java.util.stream.Collectors;
 import org.springframework.http.HttpHeaders;
@@ -36,6 +38,11 @@ public class ApiExceptionHandler extends ResponseEntityExceptionHandler {
 	@ExceptionHandler({ ControlGroupInUseException.class, ControlInUseException.class })
 	public ProblemDetail handleInUse(RuntimeException ex) {
 		return ProblemDetail.forStatusAndDetail(HttpStatus.CONFLICT, ex.getMessage());
+	}
+
+	@ExceptionHandler({ ControlGroupParentLoopException.class, ControlParentLoopException.class })
+	public ProblemDetail handleParentLoop(RuntimeException ex) {
+		return ProblemDetail.forStatusAndDetail(HttpStatus.BAD_REQUEST, ex.getMessage());
 	}
 
 	@Override

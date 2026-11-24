@@ -13,4 +13,6 @@ public interface ControlRepository extends ListCrudRepository<ControlEntity, UUI
 
 	List<ControlEntity> findByGroupIdAndParentControlId(UUID groupId, UUID parentControlId);
 
+	List<ControlEntity> findAllByParentControlIdIsNotNull();
+
 }

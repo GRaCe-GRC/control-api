@@ -15,6 +15,7 @@ import io.github.gracegrc.controlapi.domain.model.entity.ControlGroupEntity;
 import io.github.gracegrc.controlapi.domain.model.exception.ControlGroupAlreadyExistsException;
 import io.github.gracegrc.controlapi.domain.model.exception.ControlGroupInUseException;
 import io.github.gracegrc.controlapi.domain.model.exception.ControlGroupNotFoundException;
+import io.github.gracegrc.controlapi.domain.model.exception.ControlGroupParentLoopException;
 import io.github.gracegrc.controlapi.domain.repository.ControlGroupRepository;
 import java.time.Instant;
 import java.util.List;
@@ -36,6 +37,14 @@ class ControlGroupServiceImplTest {
 	private static final UUID ID = UUID.fromString("5b1e8c2a-3d4f-4a6b-8c9d-0e1f2a3b4c5d");
 
 	private static final UUID PARENT_ID = UUID.fromString("9a8b7c6d-5e4f-4a3b-9c2d-1e0f9a8b7c6d");
+
+	private static final UUID CHILD_ID = UUID.fromString("1f2e3d4c-5b6a-4978-8a9b-0c1d2e3f4a5b");
+
+	private static final UUID GRANDCHILD_ID = UUID.fromString("6c5b4a39-2817-4f6e-9d8c-7b6a59483726");
+
+	private static final UUID GREAT_GRANDCHILD_ID = UUID.fromString("4a3b2c1d-0e9f-4a8b-9c7d-6e5f4a3b2c1d");
+
+	private static final UUID OTHER_ID = UUID.fromString("0d1e2f3a-4b5c-4d6e-8f7a-9b0c1d2e3f4a");
 
 	private static final Instant CREATED_AT = Instant.parse("2026-10-01T10:15:30Z");
 
@@ -157,6 +166,99 @@ class ControlGroupServiceImplTest {
 	}
 
 	@Test
+	void updateUnderAGroupInAnotherBranchSaves() {
+		given(controlGroupRepository.findById(ID)).willReturn(Optional.of(EXISTING));
+		given(controlGroupRepository.findAllByParentGroupIdIsNotNull())
+			.willReturn(List.of(group(CHILD_ID, ID, "AC-SUB"), group(OTHER_ID, PARENT_ID, "AU-SUB")));
+		given(controlGroupRepository.existsById(OTHER_ID)).willReturn(true);
+		given(controlGroupRepository.save(any())).willAnswer(invocation -> invocation.getArgument(0));
+
+		ControlGroupResponseDto response = controlGroupService.update(ID,
+				new ControlGroupUpdateRequestDto(OTHER_ID, "AC", "Access Control"));
+
+		assertThat(response.parentGroupId()).isEqualTo(OTHER_ID);
+	}
+
+	@Test
+	void updateToTheTopLevelSavesWithoutLoadingTheTreeOrCheckingAParent() {
+		given(controlGroupRepository.findById(ID)).willReturn(Optional.of(group(ID, PARENT_ID, "AC")));
+		given(controlGroupRepository.save(any())).willAnswer(invocation -> invocation.getArgument(0));
+
+		ControlGroupResponseDto response = controlGroupService.update(ID,
+				new ControlGroupUpdateRequestDto(null, "AC", "Access Control"));
+
+		assertThat(response.parentGroupId()).isNull();
+		then(controlGroupRepository).should(never()).findAllByParentGroupIdIsNotNull();
+		then(controlGroupRepository).should(never()).existsById(any());
+	}
+
+	@Test
+	void updateUnderItselfThrowsParentLoopAndSavesNothing() {
+		given(controlGroupRepository.findById(ID)).willReturn(Optional.of(EXISTING));
+		given(controlGroupRepository.findAllByParentGroupIdIsNotNull())
+			.willReturn(List.of(group(CHILD_ID, ID, "AC-SUB")));
+
+		assertThatThrownBy(
+				() -> controlGroupService.update(ID, new ControlGroupUpdateRequestDto(ID, "AC", "Access Control")))
+			.isInstanceOf(ControlGroupParentLoopException.class)
+			.hasMessage("Control group " + ID + " cannot be moved under itself or one of its child groups");
+		then(controlGroupRepository).should(never()).save(any());
+	}
+
+	@Test
+	void updateUnderADirectChildThrowsParentLoopAndSavesNothing() {
+		given(controlGroupRepository.findById(ID)).willReturn(Optional.of(EXISTING));
+		given(controlGroupRepository.findAllByParentGroupIdIsNotNull())
+			.willReturn(List.of(group(CHILD_ID, ID, "AC-SUB")));
+
+		assertThatThrownBy(() -> controlGroupService.update(ID,
+				new ControlGroupUpdateRequestDto(CHILD_ID, "AC", "Access Control")))
+			.isInstanceOf(ControlGroupParentLoopException.class);
+		then(controlGroupRepository).should(never()).save(any());
+	}
+
+	@Test
+	void updateUnderADeepDescendantThrowsParentLoopAndSavesNothing() {
+		given(controlGroupRepository.findById(ID)).willReturn(Optional.of(EXISTING));
+		given(controlGroupRepository.findAllByParentGroupIdIsNotNull()).willReturn(List.of(
+				group(GREAT_GRANDCHILD_ID, GRANDCHILD_ID, "AC-SUB-SUB-SUB"), group(OTHER_ID, PARENT_ID, "AU-SUB"),
+				group(GRANDCHILD_ID, CHILD_ID, "AC-SUB-SUB"), group(CHILD_ID, ID, "AC-SUB")));
+
+		assertThatThrownBy(() -> controlGroupService.update(ID,
+				new ControlGroupUpdateRequestDto(GREAT_GRANDCHILD_ID, "AC", "Access Control")))
+			.isInstanceOf(ControlGroupParentLoopException.class);
+		then(controlGroupRepository).should(never()).save(any());
+	}
+
+	@Test
+	void updateWithACorruptCycleElsewhereStopsAndSaves() {
+		given(controlGroupRepository.findById(ID)).willReturn(Optional.of(EXISTING));
+		given(controlGroupRepository.findAllByParentGroupIdIsNotNull()).willReturn(List.of(
+				group(PARENT_ID, OTHER_ID, "AU"), group(OTHER_ID, PARENT_ID, "AU-SUB"), group(CHILD_ID, ID, "AC-SUB")));
+		given(controlGroupRepository.existsById(PARENT_ID)).willReturn(true);
+		given(controlGroupRepository.save(any())).willAnswer(invocation -> invocation.getArgument(0));
+
+		ControlGroupResponseDto response = controlGroupService.update(ID,
+				new ControlGroupUpdateRequestDto(PARENT_ID, "AC", "Access Control"));
+
+		assertThat(response.parentGroupId()).isEqualTo(PARENT_ID);
+	}
+
+	@Test
+	void updateWithACorruptCycleInsideTheSubtreeStopsAndSavesAParentOutsideIt() {
+		given(controlGroupRepository.findById(ID)).willReturn(Optional.of(group(ID, GRANDCHILD_ID, "AC")));
+		given(controlGroupRepository.findAllByParentGroupIdIsNotNull()).willReturn(List.of(
+				group(ID, GRANDCHILD_ID, "AC"), group(CHILD_ID, ID, "AC-SUB"), group(GRANDCHILD_ID, CHILD_ID, "AC-SUB-SUB")));
+		given(controlGroupRepository.existsById(PARENT_ID)).willReturn(true);
+		given(controlGroupRepository.save(any())).willAnswer(invocation -> invocation.getArgument(0));
+
+		ControlGroupResponseDto response = controlGroupService.update(ID,
+				new ControlGroupUpdateRequestDto(PARENT_ID, "AC", "Access Control"));
+
+		assertThat(response.parentGroupId()).isEqualTo(PARENT_ID);
+	}
+
+	@Test
 	void updateWithAnUnknownIdThrowsNotFoundAndSavesNothing() {
 		given(controlGroupRepository.findById(ID)).willReturn(Optional.empty());
 
@@ -202,6 +304,10 @@ class ControlGroupServiceImplTest {
 
 		assertThatThrownBy(() -> controlGroupService.delete(ID)).isInstanceOf(ControlGroupInUseException.class)
 			.hasMessage("Control group " + ID + " still has child groups or controls");
+	}
+
+	private static ControlGroupEntity group(UUID id, UUID parentGroupId, String groupRef) {
+		return new ControlGroupEntity(id, parentGroupId, groupRef, groupRef, CREATED_AT, "admin-console");
 	}
 
 }
