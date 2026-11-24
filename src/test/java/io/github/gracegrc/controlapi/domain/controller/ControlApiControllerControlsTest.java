@@ -15,6 +15,7 @@ import io.github.gracegrc.controlapi.domain.model.exception.ControlGroupInUseExc
 import io.github.gracegrc.controlapi.domain.model.exception.ControlGroupNotFoundException;
 import io.github.gracegrc.controlapi.domain.model.exception.ControlInUseException;
 import io.github.gracegrc.controlapi.domain.model.exception.ControlNotFoundException;
+import io.github.gracegrc.controlapi.domain.model.exception.ControlParentLoopException;
 import io.github.gracegrc.controlapi.domain.service.ControlGroupService;
 import io.github.gracegrc.controlapi.domain.service.ControlService;
 import java.time.Instant;
@@ -187,6 +188,21 @@ class ControlApiControllerControlsTest {
 			.contentType(MediaType.APPLICATION_JSON)
 			.content("{\"controlRef\":\"AC-2\",\"title\":\"Account Management\"}"))
 			.hasStatus(HttpStatus.NOT_FOUND);
+	}
+
+	@Test
+	void putControlUnderItselfOrAnEnhancementReturnsBadRequest() {
+		given(controlService.update(eq(ID), any())).willThrow(new ControlParentLoopException(ID));
+
+		assertThat(mvc.put()
+			.uri("/api/v1/controls/{id}", ID)
+			.contentType(MediaType.APPLICATION_JSON)
+			.content("{\"parentControlId\":\"" + ID
+					+ "\",\"controlRef\":\"AC-2\",\"title\":\"Account Management\"}"))
+			.hasStatus(HttpStatus.BAD_REQUEST)
+			.bodyJson()
+			.isLenientlyEqualTo("{\"status\":400,\"detail\":\"Control " + ID
+					+ " cannot be an enhancement of itself or of one of its enhancements\"}");
 	}
 
 	@Test

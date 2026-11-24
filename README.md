@@ -37,8 +37,9 @@ mapped with Spring Data JDBC.
 | `DELETE /api/v1/control-groups/{id}` | | `204` |
 
 Errors use RFC 9457 problem details: `400` for invalid input (with an `errors` field per
-property), `404` for an unknown id or `parentGroupId`, `409` for a duplicate `groupRef` or for
-deleting a group that still has child groups or controls.
+property) or for a `PUT` whose `parentGroupId` is the group itself or one of its child groups at
+any depth, `404` for an unknown id or `parentGroupId`, `409` for a duplicate `groupRef` or for
+deleting a group that still has child groups or controls. A rejected `PUT` changes nothing.
 
 ```bash
 curl -s -H 'Content-Type: application/json' \
@@ -58,8 +59,9 @@ curl -s -H 'Content-Type: application/json' \
 
 An enhancement is a control whose `parentControlId` is another control (for example `AC-2(1)`
 under `AC-2`). `PUT` replaces every field it accepts, so an omitted optional field is cleared.
-Errors: `400` for invalid input, `404` for an unknown id, `groupId` or `parentControlId`, `409`
-for a duplicate `controlRef` or for deleting a control that still has enhancements.
+Errors: `400` for invalid input or for a `PUT` whose `parentControlId` is the control itself or
+one of its enhancements at any depth, `404` for an unknown id, `groupId` or `parentControlId`,
+`409` for a duplicate `controlRef` or for deleting a control that still has enhancements.
 
 ```bash
 curl -s -H 'Content-Type: application/json' \

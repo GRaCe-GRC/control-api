@@ -8,10 +8,16 @@ import io.github.gracegrc.controlapi.domain.model.entity.ControlGroupEntity;
 import io.github.gracegrc.controlapi.domain.model.exception.ControlGroupAlreadyExistsException;
 import io.github.gracegrc.controlapi.domain.model.exception.ControlGroupInUseException;
 import io.github.gracegrc.controlapi.domain.model.exception.ControlGroupNotFoundException;
+import io.github.gracegrc.controlapi.domain.model.exception.ControlGroupParentLoopException;
 import io.github.gracegrc.controlapi.domain.repository.ControlGroupRepository;
 import java.time.Instant;
+import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
+import java.util.stream.Collectors;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.dao.DuplicateKeyException;
 import org.springframework.stereotype.Service;
@@ -50,6 +56,7 @@ public class ControlGroupServiceImpl implements ControlGroupService {
 	@Override
 	public ControlGroupResponseDto update(UUID id, ControlGroupUpdateRequestDto request) {
 		ControlGroupEntity group = ControlGroupMapper.toEntity(findEntity(id), request);
+		rejectParentLoop(id, group.parentGroupId());
 		return ControlGroupMapper.toResponseDto(save(group));
 	}
 
@@ -68,6 +75,28 @@ public class ControlGroupServiceImpl implements ControlGroupService {
 
 	private ControlGroupEntity findEntity(UUID id) {
 		return controlGroupRepository.findById(id).orElseThrow(() -> new ControlGroupNotFoundException(id));
+	}
+
+	private void rejectParentLoop(UUID id, UUID parentGroupId) {
+		if (parentGroupId == null) {
+			return;
+		}
+		Map<UUID, List<UUID>> childrenByParent = controlGroupRepository.findAllByParentGroupIdIsNotNull()
+			.stream()
+			.collect(Collectors.groupingBy(ControlGroupEntity::parentGroupId,
+					Collectors.mapping(ControlGroupEntity::id, Collectors.toList())));
+		List<UUID> subtree = new ArrayList<>(List.of(id));
+		Set<UUID> seen = new HashSet<>(subtree);
+		for (int i = 0; i < subtree.size(); i++) {
+			for (UUID child : childrenByParent.getOrDefault(subtree.get(i), List.of())) {
+				if (seen.add(child)) {
+					subtree.add(child);
+				}
+			}
+		}
+		if (seen.contains(parentGroupId)) {
+			throw new ControlGroupParentLoopException(id);
+		}
 	}
 
 	private ControlGroupEntity save(ControlGroupEntity group) {
